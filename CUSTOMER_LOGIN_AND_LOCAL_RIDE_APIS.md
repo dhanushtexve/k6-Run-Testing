@@ -127,11 +127,8 @@ Request body:
 ```json
 {
   "otp": 1234,
-  "user": "CUSTOMER",
   "deviceToken": "<fcm-token>",
-  "deviceId": "<static-device-id>",
-  "deviceUniqueId": "<static-device-id>",
-  "lastActiveDeviceId": "<optional-last-device-id>"
+  "deviceId": "<static-device-id>"
 }
 ```
 
@@ -140,11 +137,8 @@ Force logout variant:
 ```json
 {
   "otp": 1234,
-  "user": "CUSTOMER",
   "deviceToken": "<fcm-token>",
   "deviceId": "<static-device-id>",
-  "deviceUniqueId": "<static-device-id>",
-  "lastActiveDeviceId": "<optional-last-device-id>",
   "logoutAllDevices": true
 }
 ```
@@ -152,6 +146,12 @@ Force logout variant:
 Notes:
 
 - OTP is sent as a number in the request body.
+- The request still requires the session `token` header from `GET /session/start`.
+- The current backend schema requires only `otp` and `deviceToken`.
+- `deviceId` is supported and can be included when available.
+- `logoutAllDevices` is optional.
+- `1234` only works if the backend is in test-bypass mode for that session/customer.
+- `OTP_MISMATCH` means the backend rejected the session/state combination, not the JSON shape.
 - On success, the app stores the customer object in async storage key `user`.
 - If the backend says the customer is new, the app navigates to the personal info screen.
 

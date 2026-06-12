@@ -47,6 +47,7 @@ const CUSTOMER_NAMES = (
 
 const SESSION_START_PATH = getEnv('SESSION_START_PATH', '/session/start');
 const SESSION_CHECK_DEVICE_PATH = getEnv('SESSION_CHECK_DEVICE_PATH', '/session/check-device');
+const SESSION_TOKEN_OVERRIDE = getEnv('SESSION_TOKEN_OVERRIDE', '');
 const OTP_REQUEST_PATH = getEnv('REQUEST_OTP_PATH', '/verify');
 const OTP_VERIFY_PATH = getEnv('VERIFY_OTP_PATH', '/otp-verify');
 const REGISTER_CUSTOMER_PATH = getEnv('REGISTER_CUSTOMER_PATH', '/register');
@@ -166,9 +167,17 @@ function debugResponse(label, response) {
 }
 
 function startSession(phoneNumber, deviceContext) {
+  if (SESSION_TOKEN_OVERRIDE) {
+    if (DEBUG_LOG) {
+      console.log(`[session-start] using override sid=${SESSION_TOKEN_OVERRIDE}`);
+    }
+    return SESSION_TOKEN_OVERRIDE;
+  }
+
   const sessionStartRes = http.get(`${BASE_URL}${SESSION_START_PATH}`, {
     headers: { Accept: 'application/json' },
   });
+  debugResponse('session-start', sessionStartRes);
   check(sessionStartRes, {
     'session start ok': (r) => isSuccessfulResponse(r, [200]),
   });
@@ -206,9 +215,16 @@ function startSession(phoneNumber, deviceContext) {
 function loginCustomer() {
   const customerProfile = getCustomerProfile();
   const phoneNumber = customerProfile.phoneNumber;
-  const deviceContext = getDeviceContext();
+  const deviceContext = getDeviceContext(phoneNumber);
+  // The OTP verify call depends on the session token returned here.
   const sid = startSession(phoneNumber, deviceContext);
   const sessionHeaders = getTokenHeaders(sid);
+
+  if (DEBUG_LOG) {
+    console.log(
+      `[login] vu=${__VU} phone=${phoneNumber} sid=${sid} deviceId=${deviceContext.deviceId} deviceToken=${deviceContext.deviceToken}`,
+    );
+  }
 
   const otpRequest = postJson(OTP_REQUEST_PATH, {
     phoneNumber: `+91${phoneNumber}`,
@@ -222,21 +238,38 @@ function loginCustomer() {
     'otp request accepted': (r) => isSuccessfulResponse(r, [200, 201]),
   });
 
-  const otpVerify = postJson(OTP_VERIFY_PATH, {
+  let otpVerify = postJson(OTP_VERIFY_PATH, {
     otp: Number(OTP),
-    user: CUSTOMER_USER,
     deviceToken: deviceContext.deviceToken,
-    deviceId: deviceContext.deviceId,
-    deviceUniqueId: deviceContext.deviceUniqueId,
-    ...(deviceContext.lastActiveDeviceId ? { lastActiveDeviceId: deviceContext.lastActiveDeviceId } : {}),
+    ...(deviceContext.deviceId ? { deviceId: deviceContext.deviceId } : {}),
     ...(FORCE_LOGOUT ? { logoutAllDevices: true } : {}),
   }, sessionHeaders);
   debugResponse('otp-verify', otpVerify);
+
+  let body = safeJson(otpVerify) || {};
+  if (shouldRetryOtpWithLogoutAllDevices(body)) {
+    if (DEBUG_LOG) {
+      console.log(`[otp-verify] retrying with logoutAllDevices=true for phone=${phoneNumber}`);
+    }
+
+    otpVerify = postJson(OTP_VERIFY_PATH, {
+      otp: Number(OTP),
+      deviceToken: deviceContext.deviceToken,
+      ...(deviceContext.deviceId ? { deviceId: deviceContext.deviceId } : {}),
+      logoutAllDevices: true,
+    }, sessionHeaders);
+    debugResponse('otp-verify-retry', otpVerify);
+    body = safeJson(otpVerify) || {};
+  }
+
   check(otpVerify, {
     'otp verified': (r) => isSuccessfulResponse(r, [200]),
   });
 
-  const body = safeJson(otpVerify) || {};
+  if (DEBUG_LOG) {
+    console.log(`[otp-verify-body] ${JSON.stringify(body)}`);
+  }
+  const otpVerified = isSuccessfulResponse(otpVerify, [200]);
   if (body.success === true && shouldRegisterCustomer(body)) {
     const registerRes = postJson(
       REGISTER_CUSTOMER_PATH,
@@ -255,9 +288,13 @@ function loginCustomer() {
     });
   }
 
+  const loginComplete = otpVerified;
   return {
     sid,
-    token: body.token || body.accessToken || body.data?.token || body.data?.accessToken || '',
+    token: loginComplete
+      ? (body.token || body.accessToken || body.data?.token || body.data?.accessToken || sid)
+      : '',
+    loginComplete,
   };
 }
 
@@ -266,14 +303,19 @@ export default function () {
     throw new Error('ROOTCABS_BASE_URL or BASE_URL is required');
   }
 
-  if (!session.sid) {
+  if (!session.loginComplete) {
     const loginState = loginCustomer();
     session.sid = loginState.sid;
     session.token = loginState.token;
+    session.loginComplete = loginState.loginComplete;
   }
 
   const token = session.token;
   check(token, { 'token exists': (value) => !!value });
+  if (!token) {
+    sleep(1);
+    return;
+  }
 
   if (LOGIN_ONLY) {
     sleep(1);
@@ -494,12 +536,13 @@ export default function () {
 const session = {
   sid: '',
   token: '',
+  loginComplete: false,
 };
 
-function getDeviceContext() {
-  const vuSuffix = String(__VU || 0);
-  const deviceId = getEnv('DEVICE_ID', `k6-device-id-${vuSuffix}`);
-  const deviceToken = getEnv('DEVICE_TOKEN', `k6-device-token-${vuSuffix}`);
+function getDeviceContext(phoneNumber) {
+  const normalizedPhone = String(phoneNumber || '').replace(/\D/g, '');
+  const deviceId = getEnv('DEVICE_ID', `k6-device-id-${normalizedPhone}`);
+  const deviceToken = getEnv('DEVICE_TOKEN', `k6-device-token-${normalizedPhone}`);
   const deviceUniqueId = getEnv('DEVICE_UNIQUE_ID', deviceId);
   const lastActiveDeviceId = getEnv('LAST_ACTIVE_DEVICE_ID', '');
 
@@ -537,6 +580,18 @@ function getCustomerProfile() {
 
 function shouldRegisterCustomer(body) {
   return body.isVerified === false || body.customer?.status === 'NOT_ACTIVE';
+}
+
+function shouldRetryOtpWithLogoutAllDevices(body) {
+  if (FORCE_LOGOUT) {
+    return false;
+  }
+
+  return (
+    Number(body?.code) === 409 ||
+    body?.message === 'EXISTING_DEVICE_FOUND' ||
+    body?.action === 'LOGOUT_ALL_DEVICES'
+  );
 }
 
 function getEnv(key, fallback) {
