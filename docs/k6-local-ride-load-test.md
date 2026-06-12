@@ -113,11 +113,15 @@ Before writing the script, confirm these items:
 Use environment variables instead of hardcoding values:
 
 ```env
-BASE_URL=https://your-backend.example.com
+BASE_URL=https://uat.api.c4d.smartapis.cyou
 TEST_CUSTOMER_PHONE=9900000001
 TEST_CUSTOMER_OTP=1234
-REQUEST_OTP_PATH=/auth/customer/request-otp
-VERIFY_OTP_PATH=/auth/customer/verify-otp
+TEST_CUSTOMER_PHONES=919900000021,919900000022,919900000023,919900000024,919900000025,919900000026,919900000027,919900000028,919900000029,919900000030
+CUSTOMER_USER=CUSTOMER
+FORCE_LOGOUT=false
+REQUEST_OTP_PATH=/verify
+VERIFY_OTP_PATH=/otp-verify
+LOGIN_ONLY=true
 SEARCH_PATH=/places/search
 LOCAL_FARE_PATH=/rides/local/fare
 BOOKING_PATH=/rides/local/book
@@ -256,19 +260,19 @@ export default function () {
 ### Smoke test
 
 ```powershell
-k6 run -e BASE_URL=https://your-backend.example.com -e TEST_CUSTOMER_PHONE=9900000001 -e TEST_CUSTOMER_OTP=1234 scripts/k6/customer-local-ride.js
+k6 run -e BASE_URL=https://uat.api.c4d.smartapis.cyou -e TEST_CUSTOMER_PHONE=9900000001 -e TEST_CUSTOMER_OTP=1234 scripts/k6/customer-local-ride.js
 ```
 
 ### Medium test
 
 ```powershell
-k6 run -e BASE_URL=https://your-backend.example.com -e VUS=100 -e DURATION=5m -e TEST_CUSTOMER_PHONE=9900000001 -e TEST_CUSTOMER_OTP=1234 scripts/k6/customer-local-ride.js
+k6 run -e BASE_URL=https://uat.api.c4d.smartapis.cyou -e VUS=100 -e DURATION=5m -e TEST_CUSTOMER_PHONE=9900000001 -e TEST_CUSTOMER_OTP=1234 scripts/k6/customer-local-ride.js
 ```
 
 ### Full test
 
 ```powershell
-k6 run -e BASE_URL=https://your-backend.example.com -e VUS=1000 -e DURATION=10m -e TEST_CUSTOMER_PHONE=9900000001 -e TEST_CUSTOMER_OTP=1234 scripts/k6/customer-local-ride.js
+k6 run -e BASE_URL=https://uat.api.c4d.smartapis.cyou -e VUS=1000 -e DURATION=10m -e TEST_CUSTOMER_PHONE=9900000001 -e TEST_CUSTOMER_OTP=1234 scripts/k6/customer-local-ride.js
 ```
 
 ## What k6 Reports
