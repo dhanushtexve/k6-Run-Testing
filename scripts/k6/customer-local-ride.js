@@ -7,9 +7,10 @@ const API_BASE_PATH = '/api/customer/dev';
 export const options = {
   scenarios: {
     local_ride_load: {
-      executor: 'constant-vus',
-      vus: Number(getEnv('VUS', '10')),
-      duration: getEnv('DURATION', '10m'),
+      executor: 'shared-iterations',
+      vus: Number(getEnv('VUS', '1')),
+      iterations: Number(getEnv('ITERATIONS', '1')),
+      maxDuration: getEnv('DURATION', '10m'),
       gracefulStop: '30s',
     },
   },
@@ -62,10 +63,12 @@ const ESTIMATION_DETAILS_PATH = getEnv('ESTIMATION_DETAILS_PATH', '/bookings/ser
 const CONFIRM_BOOKING_PATH = getEnv('CONFIRM_BOOKING_PATH', '/confirm-booking');
 const BOOKING_CONFIRMATION_PATH = getEnv('BOOKING_CONFIRMATION_PATH', '/bookingConfirmation');
 const ASSIGN_DRIVER_PATH = getEnv('ASSIGN_DRIVER_PATH', '/assign/driver');
+const RUN_DRIVER_ASSIGNMENT = String(getEnv('RUN_DRIVER_ASSIGNMENT', 'false')).toLowerCase() === 'true';
 const ASSIGN_TO_SUPPORT_PATH = getEnv('ASSIGN_TO_SUPPORT_PATH', '/change-ownership');
 const CANCEL_BOOKING_PATH = getEnv('CANCEL_BOOKING_PATH', '/booking-cancel');
 const SERVICE_TYPE = getEnv('SERVICE_TYPE', 'RIDES');
-const SERVICE_ZONE = getEnv('SERVICE_ZONE', 'CHENNAI');
+// Use the backend's canonical zone label casing by default.
+const SERVICE_ZONE = getEnv('SERVICE_ZONE', 'Chennai');
 const PICKUP_LAT = Number(getEnv('PICKUP_LAT', '12.9716'));
 const PICKUP_LONG = Number(getEnv('PICKUP_LONG', '80.2433'));
 const DROP_LAT = Number(getEnv('DROP_LAT', '12.9815'));
@@ -87,10 +90,15 @@ const CUSTOMER_IP_ADDRESS = getEnv('CUSTOMER_IP_ADDRESS', '1.2.3.4');
 const REFERRAL_CODE = getEnv('REFERRAL_CODE', '');
 const DRIVER_SEARCH_RETRY = String(getEnv('DRIVER_SEARCH_RETRY', 'true')).toLowerCase() === 'true';
 const DRIVER_SEARCH_RETRY_DISTANCE = Number(getEnv('DRIVER_SEARCH_RETRY_DISTANCE', '2'));
+const DRIVER_SEARCH_RETRY_DELAY_MS = Number(getEnv('DRIVER_SEARCH_RETRY_DELAY_MS', '30000'));
+const DRIVER_ASSIGNMENT_POLL_ATTEMPTS = Number(getEnv('DRIVER_ASSIGNMENT_POLL_ATTEMPTS', '10'));
+const DRIVER_ASSIGNMENT_POLL_INTERVAL_MS = Number(getEnv('DRIVER_ASSIGNMENT_POLL_INTERVAL_MS', '5000'));
 const ASSIGN_TO_SUPPORT_IF_UNRESOLVED = String(getEnv('ASSIGN_TO_SUPPORT_IF_UNRESOLVED', 'false')).toLowerCase() === 'true';
+const ASSIGN_TO_SUPPORT_DELAY_MS = Number(getEnv('ASSIGN_TO_SUPPORT_DELAY_MS', '60000'));
 const CANCEL_BOOKING_AFTER_SEARCH = String(getEnv('CANCEL_BOOKING_AFTER_SEARCH', 'false')).toLowerCase() === 'true';
 const CANCEL_REASON = getEnv('CANCEL_REASON', 'Selected Wrong Location');
-const DEBUG_LOG = String(getEnv('DEBUG_LOG', 'false')).toLowerCase() === 'true';
+const SUMMARY_LOG = String(getEnv('SUMMARY_LOG', 'true')).toLowerCase() === 'true';
+const RAW_DEBUG_LOG = String(getEnv('RAW_DEBUG_LOG', getEnv('DEBUG_LOG', 'false'))).toLowerCase() === 'true';
 
 function postJson(path, payload, headers = {}) {
   return http.post(`${BASE_URL}${path}`, JSON.stringify(payload), {
@@ -157,7 +165,7 @@ function safeJson(response) {
 }
 
 function debugResponse(label, response) {
-  if (!DEBUG_LOG) {
+  if (!RAW_DEBUG_LOG) {
     return;
   }
 
@@ -168,7 +176,7 @@ function debugResponse(label, response) {
 
 function startSession(phoneNumber, deviceContext) {
   if (SESSION_TOKEN_OVERRIDE) {
-    if (DEBUG_LOG) {
+    if (RAW_DEBUG_LOG) {
       console.log(`[session-start] using override sid=${SESSION_TOKEN_OVERRIDE}`);
     }
     return SESSION_TOKEN_OVERRIDE;
@@ -220,7 +228,7 @@ function loginCustomer() {
   const sid = startSession(phoneNumber, deviceContext);
   const sessionHeaders = getTokenHeaders(sid);
 
-  if (DEBUG_LOG) {
+  if (RAW_DEBUG_LOG) {
     console.log(
       `[login] vu=${__VU} phone=${phoneNumber} sid=${sid} deviceId=${deviceContext.deviceId} deviceToken=${deviceContext.deviceToken}`,
     );
@@ -248,7 +256,7 @@ function loginCustomer() {
 
   let body = safeJson(otpVerify) || {};
   if (shouldRetryOtpWithLogoutAllDevices(body)) {
-    if (DEBUG_LOG) {
+    if (RAW_DEBUG_LOG) {
       console.log(`[otp-verify] retrying with logoutAllDevices=true for phone=${phoneNumber}`);
     }
 
@@ -266,7 +274,7 @@ function loginCustomer() {
     'otp verified': (r) => isSuccessfulResponse(r, [200]),
   });
 
-  if (DEBUG_LOG) {
+  if (RAW_DEBUG_LOG) {
     console.log(`[otp-verify-body] ${JSON.stringify(body)}`);
   }
   const otpVerified = isSuccessfulResponse(otpVerify, [200]);
@@ -329,6 +337,7 @@ export default function () {
     { lat: PICKUP_LAT, long: PICKUP_LONG },
     authHeaders,
   );
+  debugResponse('pickup-address', pickupAddressRes);
   check(pickupAddressRes, {
     'pickup address ok': (r) => isSuccessfulResponse(r, [200]),
   });
@@ -338,6 +347,7 @@ export default function () {
     { lat: DROP_LAT, long: DROP_LONG },
     authHeaders,
   );
+  debugResponse('drop-address', dropAddressRes);
   check(dropAddressRes, {
     'drop address ok': (r) => isSuccessfulResponse(r, [200]),
   });
@@ -382,6 +392,7 @@ export default function () {
     },
     authHeaders,
   );
+  debugResponse('distance', distanceRes);
   check(distanceRes, {
     'distance ok': (r) => isSuccessfulResponse(r, [200]),
   });
@@ -396,6 +407,7 @@ export default function () {
     },
     authHeaders,
   );
+  debugResponse('check-location', locationRes);
   check(locationRes, {
     'location ok': (r) => isSuccessfulResponse(r, [200]),
   });
@@ -410,24 +422,53 @@ export default function () {
     },
     authHeaders,
   );
+  debugResponse('zone-packages', zoneRes);
   check(zoneRes, {
     'zone packages ok': (r) => isSuccessfulResponse(r, [200]),
+  });
+
+  const pickupAddressPayload = resolveAddressPayload(
+    pickupAddressRes,
+    PICKUP_ADDRESS_NAME,
+    PICKUP_ADDRESS_PLACE_ID,
+  );
+  const dropAddressPayload = resolveAddressPayload(
+    dropAddressRes,
+    DROP_ADDRESS_NAME,
+    DROP_ADDRESS_PLACE_ID,
+  );
+  const bookingZone = resolveBookingZone(zoneRes, SERVICE_ZONE);
+  logBookingDraftSummary('booking-draft-summary', {
+    serviceType: SERVICE_TYPE,
+    zone: bookingZone,
+    pickupLat: PICKUP_LAT,
+    pickupLong: PICKUP_LONG,
+    dropLat: DROP_LAT,
+    dropLong: DROP_LONG,
+    pickupAddress: pickupAddressPayload,
+    dropAddress: dropAddressPayload,
+    riderId: selectedRiderId || null,
   });
 
   const bookingPayload = {
     pickupLat: PICKUP_LAT,
     pickupLong: PICKUP_LONG,
-    pickupAddress: buildAddressPayload(PICKUP_ADDRESS_NAME, PICKUP_ADDRESS_PLACE_ID),
+    pickupAddress: pickupAddressPayload,
     dropLat: DROP_LAT,
     dropLong: DROP_LONG,
-    dropAddress: buildAddressPayload(DROP_ADDRESS_NAME, DROP_ADDRESS_PLACE_ID),
-    zone: SERVICE_ZONE,
+    dropAddress: dropAddressPayload,
+    zone: bookingZone,
   };
   if (selectedRiderId) {
     bookingPayload.riderId = selectedRiderId;
   }
 
+  if (RAW_DEBUG_LOG) {
+    console.log(`[add-rides-booking-request] ${JSON.stringify(bookingPayload)}`);
+  }
+
   const bookRes = postJson(ADD_RIDES_BOOKING_PATH, bookingPayload, authHeaders);
+  debugResponse('add-rides-booking', bookRes);
   check(bookRes, {
     'booking created': (r) => isSuccessfulResponse(r, [200, 201]),
   });
@@ -450,12 +491,21 @@ export default function () {
       'estimation details ok': (r) => isSuccessfulResponse(r, [200]),
     });
 
+    const estimationBody = safeJson(estimationRes) || {};
+    const resolvedPackageId = resolvePackageId(bookingBody, estimationBody, PACKAGE_ID);
+    logEstimateSummary('estimate-summary', estimationBody, {
+      bookingId,
+      zone: bookingZone,
+      serviceType: SERVICE_TYPE,
+      packageId: resolvedPackageId || null,
+    });
+
     const confirmPayload = {
       status: BOOKING_STATUS,
       bookingId,
       serviceType: SERVICE_TYPE,
       ...(CAR_TYPE && CAR_TYPE.toUpperCase() !== 'AUTO' ? { carType: CAR_TYPE } : {}),
-      ...(PACKAGE_ID ? { packageId: Number(PACKAGE_ID) || PACKAGE_ID } : {}),
+      ...(resolvedPackageId ? { packageId: Number(resolvedPackageId) || resolvedPackageId } : {}),
       ...(IS_PREMIUM_SERVICE ? { isPremiumService: true } : {}),
     };
     const confirmRes = putJson(
@@ -470,48 +520,97 @@ export default function () {
     const bookingConfirmationRes = http.get(`${BASE_URL}${BOOKING_CONFIRMATION_PATH}/${bookingId}`, {
       headers: authHeaders,
     });
+    debugResponse('booking-confirmation-before-assign', bookingConfirmationRes);
+    logBookingStateSummary('booking-confirmation-before-assign-summary', safeJson(bookingConfirmationRes), {
+      bookingId,
+      stage: 'before-assign',
+    });
     check(bookingConfirmationRes, {
-      'booking confirmation ok': (r) => isSuccessfulResponse(r, [200]),
+      'booking confirmation after assign ok': (r) => isSuccessfulResponse(r, [200]),
     });
 
-    const assignDriverRes = postJson(
-      ASSIGN_DRIVER_PATH,
-      {
-        bookingId,
-        distance: DRIVER_SEARCH_DISTANCE,
-      },
-      authHeaders,
-    );
-    check(assignDriverRes, {
-      'assign driver ok': (r) => isSuccessfulResponse(r, [200, 201]),
-    });
-
-    if (DRIVER_SEARCH_RETRY) {
-      const retryAssignDriverRes = postJson(
+    if (RUN_DRIVER_ASSIGNMENT) {
+      const assignDriverRes = postJson(
         ASSIGN_DRIVER_PATH,
         {
           bookingId,
-          distance: DRIVER_SEARCH_RETRY_DISTANCE,
+          distance: DRIVER_SEARCH_DISTANCE,
         },
         authHeaders,
       );
-      check(retryAssignDriverRes, {
-        'assign driver retry ok': (r) => isSuccessfulResponse(r, [200, 201]),
+      debugResponse('assign-driver', assignDriverRes);
+      logAssignmentSummary('assign-driver-summary', assignDriverRes);
+      check(assignDriverRes, {
+        'assign driver ok': (r) => isSuccessfulResponse(r, [200, 201]),
       });
-    }
 
-    if (ASSIGN_TO_SUPPORT_IF_UNRESOLVED) {
-      const assignSupportRes = putJson(
-        ASSIGN_TO_SUPPORT_PATH,
-        {
-          bookingId,
-          ownership: 'ASSIGNED_TO_SUPPORT',
-        },
+      const attemptsBeforeRetry = getPollAttemptsForWindow(DRIVER_SEARCH_RETRY_DELAY_MS);
+      const firstAssignmentState = pollForDriverAssignment(
+        bookingId,
         authHeaders,
+        attemptsBeforeRetry,
+        'booking-confirmation-after-assign',
       );
-      check(assignSupportRes, {
-        'assign to support ok': (r) => isSuccessfulResponse(r, [200]),
+      logBookingStateSummary('booking-confirmation-after-first-dispatch-summary', firstAssignmentState.body, {
+        bookingId,
+        stage: 'after-first-dispatch',
       });
+      check(firstAssignmentState.response, {
+        'booking confirmation after first dispatch ok': (r) => isSuccessfulResponse(r, [200]),
+      });
+
+      let finalAssignmentState = firstAssignmentState;
+      if (!firstAssignmentState.assigned && DRIVER_SEARCH_RETRY) {
+        const retryAssignDriverRes = postJson(
+          ASSIGN_DRIVER_PATH,
+          {
+            bookingId,
+            distance: DRIVER_SEARCH_RETRY_DISTANCE,
+          },
+          authHeaders,
+        );
+        debugResponse('assign-driver-retry', retryAssignDriverRes);
+        logAssignmentSummary('assign-driver-retry-summary', retryAssignDriverRes);
+        check(retryAssignDriverRes, {
+          'assign driver retry ok': (r) => isSuccessfulResponse(r, [200, 201]),
+        });
+
+        const attemptsAfterRetry = getPollAttemptsForWindow(
+          Math.max(ASSIGN_TO_SUPPORT_DELAY_MS - DRIVER_SEARCH_RETRY_DELAY_MS, DRIVER_ASSIGNMENT_POLL_INTERVAL_MS),
+        );
+        finalAssignmentState = pollForDriverAssignment(
+          bookingId,
+          authHeaders,
+          attemptsAfterRetry,
+          'booking-confirmation-after-retry',
+        );
+        logBookingStateSummary('booking-confirmation-after-retry-summary', finalAssignmentState.body, {
+          bookingId,
+          stage: 'after-retry',
+        });
+      }
+
+      logBookingStateSummary('booking-confirmation-final-summary', finalAssignmentState.body, {
+        bookingId,
+        stage: 'final',
+      });
+      check(finalAssignmentState.response, {
+        'booking confirmation after dispatch ok': (r) => isSuccessfulResponse(r, [200]),
+      });
+
+      if (ASSIGN_TO_SUPPORT_IF_UNRESOLVED && !finalAssignmentState.assigned) {
+        const assignSupportRes = putJson(
+          ASSIGN_TO_SUPPORT_PATH,
+          {
+            bookingId,
+            ownership: 'ASSIGNED_TO_SUPPORT',
+          },
+          authHeaders,
+        );
+        check(assignSupportRes, {
+          'assign to support ok': (r) => isSuccessfulResponse(r, [200]),
+        });
+      }
     }
 
     if (CANCEL_BOOKING_AFTER_SEARCH) {
@@ -561,6 +660,259 @@ function buildAddressPayload(name, placeId) {
   }
 
   return payload;
+}
+
+function resolveAddressPayload(response, fallbackName, fallbackPlaceId) {
+  const body = safeJson(response) || {};
+  const candidate = firstDefined(
+    body.data,
+    body.address,
+    body.result,
+  );
+
+  if (typeof candidate === 'string' && candidate.trim()) {
+    return buildAddressPayload(candidate.trim(), fallbackPlaceId);
+  }
+
+  if (candidate && typeof candidate === 'object') {
+    const resolvedName = firstDefined(
+      candidate.name,
+      candidate.address,
+      candidate.formattedAddress,
+      candidate.formatted_address,
+      candidate.description,
+      fallbackName,
+    );
+    const resolvedPlaceId = firstDefined(
+      candidate.placeId,
+      candidate.place_id,
+      fallbackPlaceId,
+    );
+
+    return buildAddressPayload(resolvedName, resolvedPlaceId);
+  }
+
+  return buildAddressPayload(fallbackName, fallbackPlaceId);
+}
+
+function resolveBookingZone(response, fallbackZone) {
+  const body = safeJson(response) || {};
+  const firstPackage = Array.isArray(body.data) ? body.data[0] : null;
+
+  return firstDefined(
+    body.serviceArea?.name,
+    body.serviceArea?.description,
+    firstPackage?.zone,
+    firstPackage?.serviceArea,
+    body.zone,
+    fallbackZone,
+  );
+}
+
+function resolvePackageId(bookingBody, estimationBody, fallbackPackageId) {
+  const estimationData = estimationBody?.data;
+  const estimationItem = Array.isArray(estimationData)
+    ? estimationData[0]
+    : Array.isArray(estimationData?.estimates)
+      ? estimationData.estimates[0]
+      : estimationData;
+
+  return firstDefined(
+    fallbackPackageId,
+    bookingBody?.data?.packageId,
+    bookingBody?.packageId,
+    estimationItem?.packageId,
+    estimationItem?.id,
+    '',
+  );
+}
+
+function firstDefined(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && value !== '') {
+      return value;
+    }
+  }
+
+  return '';
+}
+
+function pollForDriverAssignment(bookingId, headers, attempts = DRIVER_ASSIGNMENT_POLL_ATTEMPTS, labelPrefix = 'booking-confirmation-after-assign') {
+  let lastResponse = null;
+  let lastBody = {};
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const response = http.get(`${BASE_URL}${BOOKING_CONFIRMATION_PATH}/${bookingId}`, {
+      headers,
+    });
+    debugResponse(`${labelPrefix}-${attempt}`, response);
+
+    lastResponse = response;
+    lastBody = safeJson(response) || {};
+
+    const booking = extractBookingDetails(lastBody);
+    const status = booking.status || '';
+    const driverId = booking.driverId || booking.DriverId || null;
+    const assigned = Boolean(driverId) || isAssignedStatus(status);
+
+    if (RAW_DEBUG_LOG) {
+      console.log(
+        `[driver-assignment-check] attempt=${attempt} bookingId=${bookingId} status=${status || 'UNKNOWN'} driverId=${driverId || 'null'}`,
+      );
+    }
+
+    if (assigned) {
+      return {
+        response,
+        body: lastBody,
+        assigned: true,
+      };
+    }
+
+    if (attempt < attempts) {
+      sleep(DRIVER_ASSIGNMENT_POLL_INTERVAL_MS / 1000);
+    }
+  }
+
+  return {
+    response: lastResponse,
+    body: lastBody,
+    assigned: false,
+  };
+}
+
+function getPollAttemptsForWindow(windowMs) {
+  const attempts = Math.ceil(windowMs / DRIVER_ASSIGNMENT_POLL_INTERVAL_MS);
+  return Math.max(attempts, 1);
+}
+
+function logAssignmentSummary(label, response) {
+  if (!SUMMARY_LOG) {
+    return;
+  }
+
+  const body = safeJson(response) || {};
+  const booking = extractBookingDetails(body);
+  const summary = {
+    success: body.success,
+    code: body.code,
+    message: body.message || body.description || '',
+    bookingId: booking.id || booking.bookingId || '',
+    status: booking.status || '',
+    driverId: booking.driverId || booking.DriverId || null,
+    ownership: booking.ownership || '',
+  };
+
+  console.log(`[${label}] ${JSON.stringify(summary)}`);
+}
+
+function logBookingDraftSummary(label, draft) {
+  if (!SUMMARY_LOG) {
+    return;
+  }
+
+  console.log(`[${label}] ${JSON.stringify({
+    serviceType: draft.serviceType || '',
+    zone: draft.zone || '',
+    pickupLat: draft.pickupLat || null,
+    pickupLong: draft.pickupLong || null,
+    dropLat: draft.dropLat || null,
+    dropLong: draft.dropLong || null,
+    pickupAddress: draft.pickupAddress?.name || '',
+    dropAddress: draft.dropAddress?.name || '',
+    riderId: draft.riderId || null,
+  })}`);
+}
+
+function logEstimateSummary(label, estimationBody, context = {}) {
+  if (!SUMMARY_LOG) {
+    return;
+  }
+
+  const estimation = extractEstimationDetails(estimationBody);
+  console.log(`[${label}] ${JSON.stringify({
+    bookingId: context.bookingId || '',
+    serviceType: context.serviceType || '',
+    zone: context.zone || '',
+    packageId: context.packageId || estimation.packageId || estimation.id || null,
+    carType: estimation.carType || '',
+    estimatedPrice: estimation.estimatedPrice || estimation.price || null,
+    estimatedDistance: estimation.estimatedDistance || estimation.travelDistance || null,
+    driverWithin: estimation.driverWithin || estimation.driverWithinDistance || null,
+    isPrimeLocation: estimation.isPrimeLocation ?? null,
+  })}`);
+}
+
+function logBookingStateSummary(label, body, context = {}) {
+  if (!SUMMARY_LOG) {
+    return;
+  }
+
+  const booking = extractBookingDetails(body || {});
+  const estimatedFare = booking.estimatedFareBreakdown || booking.value?.fareBreakdown || {};
+  console.log(`[${label}] ${JSON.stringify({
+    stage: context.stage || '',
+    bookingId: context.bookingId || booking.id || booking.bookingId || '',
+    status: booking.status || '',
+    driverId: booking.driverId || booking.DriverId || null,
+    ownership: booking.ownership || '',
+    zone: booking.zone || '',
+    packageId: booking.packageId || booking.PackageId || null,
+    carType: booking.carType || booking.value?.carType || '',
+    serviceType: booking.serviceType || '',
+    pickupLat: booking.pickupLat || null,
+    pickupLong: booking.pickupLong || null,
+    dropLat: booking.dropLat || null,
+    dropLong: booking.dropLong || null,
+    pickupAddress: booking.pickupAddress?.name || booking.pickupFormatAddress?.name || '',
+    dropAddress: booking.dropAddress?.name || booking.dropFormatAddress?.name || '',
+    driverWithinDistance: firstDefined(
+      estimatedFare.driverWithinDistance,
+      booking.value?.driverWithinDistance,
+      booking.value?.driverWithin,
+      null,
+    ),
+    estimatedPrice: firstDefined(
+      booking.value?.estimatedPrice,
+      estimatedFare.total,
+      null,
+    ),
+  })}`);
+}
+
+function extractBookingDetails(body) {
+  return firstDefined(
+    body?.data?.bookingDetails,
+    body?.data,
+    body?.bookingDetails,
+    body,
+    {},
+  );
+}
+
+function extractEstimationDetails(body) {
+  const data = body?.data;
+  if (Array.isArray(data)) {
+    return data[0] || {};
+  }
+
+  if (Array.isArray(data?.estimates)) {
+    return data.estimates[0] || {};
+  }
+
+  return data || {};
+}
+
+function isAssignedStatus(status) {
+  const normalizedStatus = String(status || '').trim().toUpperCase();
+  return [
+    'DRIVER_ASSIGNED',
+    'ASSIGNED',
+    'ALLOCATED',
+    'ACCEPTED',
+    'ONGOING',
+    'STARTED',
+  ].includes(normalizedStatus);
 }
 
 function getTokenHeaders(token) {

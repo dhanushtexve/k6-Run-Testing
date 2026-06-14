@@ -128,6 +128,8 @@ BOOKING_PATH=/rides/local/book
 STATUS_PATH=/rides/status
 VUS=1000
 DURATION=10m
+SUMMARY_LOG=true
+RAW_DEBUG_LOG=false
 ```
 
 These are examples. Replace them with the actual backend contract.
@@ -147,9 +149,10 @@ import { check, sleep } from 'k6';
 export const options = {
   scenarios: {
     local_ride_load: {
-      executor: 'constant-vus',
-      vus: Number(__ENV.VUS || 1000),
-      duration: __ENV.DURATION || '10m',
+      executor: 'shared-iterations',
+      vus: Number(__ENV.VUS || 1),
+      iterations: Number(__ENV.ITERATIONS || 1),
+      maxDuration: __ENV.DURATION || '10m',
       gracefulStop: '30s',
     },
   },
@@ -168,6 +171,8 @@ const SEARCH_PATH = __ENV.SEARCH_PATH || '/places/search';
 const LOCAL_FARE_PATH = __ENV.LOCAL_FARE_PATH || '/rides/local/fare';
 const BOOKING_PATH = __ENV.BOOKING_PATH || '/rides/local/book';
 const STATUS_PATH = __ENV.STATUS_PATH || '/rides/status';
+const SUMMARY_LOG = String(__ENV.SUMMARY_LOG || 'true').toLowerCase() === 'true';
+const RAW_DEBUG_LOG = String(__ENV.RAW_DEBUG_LOG || 'false').toLowerCase() === 'true';
 
 function postJson(path, payload, headers = {}) {
   return http.post(`${BASE_URL}${path}`, JSON.stringify(payload), {
@@ -274,6 +279,15 @@ k6 run -e BASE_URL=https://uat.api.c4d.smartapis.cyou -e VUS=100 -e DURATION=5m 
 ```powershell
 k6 run -e BASE_URL=https://uat.api.c4d.smartapis.cyou -e VUS=1000 -e DURATION=10m -e TEST_CUSTOMER_PHONE=9900000001 -e TEST_CUSTOMER_OTP=1234 scripts/k6/customer-local-ride.js
 ```
+
+## Logging
+
+The current script supports two log modes:
+
+- `SUMMARY_LOG=true` for concise booking and assignment summaries
+- `RAW_DEBUG_LOG=true` for full response dumps
+
+Use summary logs by default. Enable raw debug only when you need payload-level investigation.
 
 ## What k6 Reports
 
