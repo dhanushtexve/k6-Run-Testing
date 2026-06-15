@@ -1,0 +1,252 @@
+{
+    "metrics": {
+        "http_req_receiving": {
+            "max": 15.5963,
+            "p(90)": 7.224269999999999,
+            "p(95)": 10.0781,
+            "avg": 1.6645644067796614,
+            "min": 0,
+            "med": 0
+        },
+        "http_req_duration": {
+            "avg": 531.3751644067798,
+            "min": 300.4613,
+            "med": 501.19465,
+            "max": 1457.1998,
+            "p(90)": 840.1536100000001,
+            "p(95)": 930.81188,
+            "thresholds": {
+                "p(95)<2000": false
+            }
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 118,
+            "thresholds": {
+                "rate<0.01": false
+            },
+            "value": 0
+        },
+        "data_received": {
+            "count": 255632,
+            "rate": 3546.9544383301522
+        },
+        "http_req_waiting": {
+            "max": 1448.5343,
+            "p(90)": 835.87424,
+            "p(95)": 929.4502100000001,
+            "avg": 529.4809313559322,
+            "min": 293.8141,
+            "med": 500.2445
+        },
+        "iteration_duration": {
+            "med": 5937.04105,
+            "max": 72070.844,
+            "p(90)": 13641.804229999976,
+            "p(95)": 42856.32411499993,
+            "avg": 12698.87865,
+            "min": 5930.4677
+        },
+        "vus_max": {
+            "value": 10,
+            "min": 10,
+            "max": 10
+        },
+        "http_req_connecting": {
+            "med": 0,
+            "max": 99.5391,
+            "p(90)": 0,
+            "p(95)": 8.677774999999999,
+            "avg": 2.274114406779661,
+            "min": 0
+        },
+        "vus": {
+            "min": 1,
+            "max": 10,
+            "value": 1
+        },
+        "http_req_duration{expected_response:true}": {
+            "max": 1457.1998,
+            "p(90)": 840.1536100000001,
+            "p(95)": 930.81188,
+            "avg": 531.3751644067798,
+            "min": 300.4613,
+            "med": 501.19465
+        },
+        "http_req_sending": {
+            "max": 3.8661,
+            "p(90)": 0.60131,
+            "p(95)": 0.7232449999999998,
+            "avg": 0.2296686440677966,
+            "min": 0,
+            "med": 0
+        },
+        "http_req_blocked": {
+            "med": 0,
+            "max": 527.7359,
+            "p(90)": 0,
+            "p(95)": 369.6415,
+            "avg": 35.319288983050846,
+            "min": 0
+        },
+        "iterations": {
+            "rate": 0.138752364270911,
+            "count": 10
+        },
+        "http_req_tls_handshaking": {
+            "p(90)": 0,
+            "p(95)": 141.977105,
+            "avg": 14.463613559322035,
+            "min": 0,
+            "med": 0,
+            "max": 297.6176
+        },
+        "data_sent": {
+            "count": 39668,
+            "rate": 550.4028785898498
+        },
+        "checks": {
+            "passes": 108,
+            "fails": 9,
+            "value": 0.9230769230769231
+        },
+        "http_reqs": {
+            "count": 118,
+            "rate": 1.63727789839675
+        }
+    },
+    "root_group": {
+        "checks": {
+            "session start ok": {
+                "path": "::session start ok",
+                "id": "52804740ca708f65d1b5d7f7361c050a",
+                "passes": 10,
+                "fails": 0,
+                "name": "session start ok"
+            },
+            "otp request accepted": {
+                "name": "otp request accepted",
+                "path": "::otp request accepted",
+                "id": "82276f9dc64b1dd865cb7b65b95e36bf",
+                "passes": 10,
+                "fails": 0
+            },
+            "otp verified": {
+                "name": "otp verified",
+                "path": "::otp verified",
+                "id": "ca632f6ab3b0d59fc51d9d878d3c9b5d",
+                "passes": 10,
+                "fails": 0
+            },
+            "token exists": {
+                "fails": 0,
+                "name": "token exists",
+                "path": "::token exists",
+                "id": "501d3ab8642eebcf0d59abc7d9aca2c1",
+                "passes": 10
+            },
+            "pickup address ok": {
+                "passes": 10,
+                "fails": 0,
+                "name": "pickup address ok",
+                "path": "::pickup address ok",
+                "id": "efbdbc9055c2770d58caff3a784c2485"
+            },
+            "drop address ok": {
+                "name": "drop address ok",
+                "path": "::drop address ok",
+                "id": "b7598b7f9565c575e50fb57b3a737779",
+                "passes": 10,
+                "fails": 0
+            },
+            "riders ok": {
+                "passes": 10,
+                "fails": 0,
+                "name": "riders ok",
+                "path": "::riders ok",
+                "id": "eb834a5dfb3353e7ab765d9ebda35831"
+            },
+            "distance ok": {
+                "name": "distance ok",
+                "path": "::distance ok",
+                "id": "50f8ce4c0227fb5a8b47d7e6b465c8c2",
+                "passes": 10,
+                "fails": 0
+            },
+            "location ok": {
+                "id": "df151926c81e7c8bd05f53f1a0221784",
+                "passes": 10,
+                "fails": 0,
+                "name": "location ok",
+                "path": "::location ok"
+            },
+            "zone packages ok": {
+                "name": "zone packages ok",
+                "path": "::zone packages ok",
+                "id": "4484f005dd389196ca81e43b76884e14",
+                "passes": 10,
+                "fails": 0
+            },
+            "booking created": {
+                "fails": 9,
+                "name": "booking created",
+                "path": "::booking created",
+                "id": "d00996dc0592b07c5c18b136afd7d3c3",
+                "passes": 1
+            },
+            "estimation details ok": {
+                "id": "b035e26876a2a36f35c9f7ed9bd66771",
+                "passes": 1,
+                "fails": 0,
+                "name": "estimation details ok",
+                "path": "::estimation details ok"
+            },
+            "confirm booking ok": {
+                "id": "0725d4cc2516988dfd3a6bdd8d0d86d8",
+                "passes": 1,
+                "fails": 0,
+                "name": "confirm booking ok",
+                "path": "::confirm booking ok"
+            },
+            "booking confirmation after assign ok": {
+                "name": "booking confirmation after assign ok",
+                "path": "::booking confirmation after assign ok",
+                "id": "ee12140771009e5b932af012642ed3dd",
+                "passes": 1,
+                "fails": 0
+            },
+            "assign driver ok": {
+                "name": "assign driver ok",
+                "path": "::assign driver ok",
+                "id": "89c832e05d77ab2ebb68930f8227fb21",
+                "passes": 1,
+                "fails": 0
+            },
+            "booking confirmation after first dispatch ok": {
+                "name": "booking confirmation after first dispatch ok",
+                "path": "::booking confirmation after first dispatch ok",
+                "id": "4f1c630080c30ce43757bb3a89290354",
+                "passes": 1,
+                "fails": 0
+            },
+            "assign driver retry ok": {
+                "passes": 1,
+                "fails": 0,
+                "name": "assign driver retry ok",
+                "path": "::assign driver retry ok",
+                "id": "279e929f8ccaa539a7168a218dff171b"
+            },
+            "booking confirmation after dispatch ok": {
+                "id": "650ac74e65a4e552f9fbd85b27ab9ca8",
+                "passes": 1,
+                "fails": 0,
+                "name": "booking confirmation after dispatch ok",
+                "path": "::booking confirmation after dispatch ok"
+            }
+        },
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {}
+    }
+}

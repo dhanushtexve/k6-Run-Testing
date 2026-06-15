@@ -469,11 +469,21 @@ export default function () {
 
   const bookRes = postJson(ADD_RIDES_BOOKING_PATH, bookingPayload, authHeaders);
   debugResponse('add-rides-booking', bookRes);
-  check(bookRes, {
+  const bookingCreated = check(bookRes, {
     'booking created': (r) => isSuccessfulResponse(r, [200, 201]),
   });
 
   const bookingBody = safeJson(bookRes) || {};
+  if (!bookingCreated) {
+    logBookingCreationFailure('booking-create-failure-summary', bookRes, {
+      serviceType: SERVICE_TYPE,
+      zone: bookingZone,
+      pickupLat: PICKUP_LAT,
+      pickupLong: PICKUP_LONG,
+      dropLat: DROP_LAT,
+      dropLong: DROP_LONG,
+    });
+  }
   const bookingId =
     bookingBody.bookingId ||
     bookingBody.data?.bookingId ||
@@ -877,6 +887,27 @@ function logBookingStateSummary(label, body, context = {}) {
       estimatedFare.total,
       null,
     ),
+  })}`);
+}
+
+function logBookingCreationFailure(label, response, context = {}) {
+  if (!SUMMARY_LOG) {
+    return;
+  }
+
+  const body = safeJson(response) || {};
+  console.log(`[${label}] ${JSON.stringify({
+    httpStatus: response.status,
+    success: body.success ?? null,
+    code: body.code ?? null,
+    message: body.message || body.description || body.error || '',
+    bookingId: body.bookingId || body.data?.bookingId || body.data?.id || '',
+    serviceType: context.serviceType || '',
+    zone: context.zone || '',
+    pickupLat: context.pickupLat || null,
+    pickupLong: context.pickupLong || null,
+    dropLat: context.dropLat || null,
+    dropLong: context.dropLong || null,
   })}`);
 }
 
