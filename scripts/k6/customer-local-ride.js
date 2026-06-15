@@ -97,6 +97,7 @@ const ASSIGN_TO_SUPPORT_IF_UNRESOLVED = String(getEnv('ASSIGN_TO_SUPPORT_IF_UNRE
 const ASSIGN_TO_SUPPORT_DELAY_MS = Number(getEnv('ASSIGN_TO_SUPPORT_DELAY_MS', '60000'));
 const CANCEL_BOOKING_AFTER_SEARCH = String(getEnv('CANCEL_BOOKING_AFTER_SEARCH', 'false')).toLowerCase() === 'true';
 const CANCEL_REASON = getEnv('CANCEL_REASON', 'Selected Wrong Location');
+const BOOKING_CREATION_STAGGER_SECONDS = Number(getEnv('BOOKING_CREATION_STAGGER_SECONDS', '0'));
 const SUMMARY_LOG = String(getEnv('SUMMARY_LOG', 'true')).toLowerCase() === 'true';
 const RAW_DEBUG_LOG = String(getEnv('RAW_DEBUG_LOG', getEnv('DEBUG_LOG', 'false'))).toLowerCase() === 'true';
 
@@ -465,6 +466,15 @@ export default function () {
 
   if (RAW_DEBUG_LOG) {
     console.log(`[add-rides-booking-request] ${JSON.stringify(bookingPayload)}`);
+  }
+
+  const bookingCreationDelaySeconds = Math.max((__VU - 1) * BOOKING_CREATION_STAGGER_SECONDS, 0);
+  if (bookingCreationDelaySeconds > 0) {
+    logBookingCreationDelay('booking-create-delay-summary', {
+      vu: __VU,
+      delaySeconds: bookingCreationDelaySeconds,
+    });
+    sleep(bookingCreationDelaySeconds);
   }
 
   const bookRes = postJson(ADD_RIDES_BOOKING_PATH, bookingPayload, authHeaders);
@@ -908,6 +918,17 @@ function logBookingCreationFailure(label, response, context = {}) {
     pickupLong: context.pickupLong || null,
     dropLat: context.dropLat || null,
     dropLong: context.dropLong || null,
+  })}`);
+}
+
+function logBookingCreationDelay(label, context = {}) {
+  if (!SUMMARY_LOG) {
+    return;
+  }
+
+  console.log(`[${label}] ${JSON.stringify({
+    vu: context.vu || null,
+    delaySeconds: context.delaySeconds || 0,
   })}`);
 }
 
