@@ -98,6 +98,9 @@ const ASSIGN_TO_SUPPORT_DELAY_MS = Number(getEnv('ASSIGN_TO_SUPPORT_DELAY_MS', '
 const CANCEL_BOOKING_AFTER_SEARCH = String(getEnv('CANCEL_BOOKING_AFTER_SEARCH', 'false')).toLowerCase() === 'true';
 const CANCEL_REASON = getEnv('CANCEL_REASON', 'Selected Wrong Location');
 const BOOKING_CREATION_STAGGER_SECONDS = Number(getEnv('BOOKING_CREATION_STAGGER_SECONDS', '0'));
+const USE_FORWARDED_IP_HEADERS = String(getEnv('USE_FORWARDED_IP_HEADERS', 'false')).toLowerCase() === 'true';
+const FORWARDED_IP_BASE = getEnv('FORWARDED_IP_BASE', '10.10.10');
+const FORWARDED_IP_START = Number(getEnv('FORWARDED_IP_START', '21'));
 const SUMMARY_LOG = String(getEnv('SUMMARY_LOG', 'true')).toLowerCase() === 'true';
 const RAW_DEBUG_LOG = String(getEnv('RAW_DEBUG_LOG', getEnv('DEBUG_LOG', 'false'))).toLowerCase() === 'true';
 
@@ -175,7 +178,7 @@ function debugResponse(label, response) {
   console.log(`[${label}] status=${response.status} body=${bodyText}`);
 }
 
-function startSession(phoneNumber, deviceContext) {
+function startSession(phoneNumber, deviceContext, forwardedIp) {
   if (SESSION_TOKEN_OVERRIDE) {
     if (RAW_DEBUG_LOG) {
       console.log(`[session-start] using override sid=${SESSION_TOKEN_OVERRIDE}`);
@@ -184,7 +187,10 @@ function startSession(phoneNumber, deviceContext) {
   }
 
   const sessionStartRes = http.get(`${BASE_URL}${SESSION_START_PATH}`, {
-    headers: { Accept: 'application/json' },
+    headers: {
+      Accept: 'application/json',
+      ...getForwardedHeaders(forwardedIp),
+    },
   });
   debugResponse('session-start', sessionStartRes);
   check(sessionStartRes, {
@@ -200,7 +206,7 @@ function startSession(phoneNumber, deviceContext) {
     '';
 
   if (CHECK_DEVICE_BEFORE_LOGIN) {
-    const sessionHeaders = getTokenHeaders(sid);
+    const sessionHeaders = getTokenHeaders(sid, forwardedIp);
     const checkDeviceRes = postJson(
       SESSION_CHECK_DEVICE_PATH,
       {
@@ -225,15 +231,21 @@ function loginCustomer() {
   const customerProfile = getCustomerProfile();
   const phoneNumber = customerProfile.phoneNumber;
   const deviceContext = getDeviceContext(phoneNumber);
+  const forwardedIp = getForwardedIp(__VU);
   // The OTP verify call depends on the session token returned here.
-  const sid = startSession(phoneNumber, deviceContext);
-  const sessionHeaders = getTokenHeaders(sid);
+  const sid = startSession(phoneNumber, deviceContext, forwardedIp);
+  const sessionHeaders = getTokenHeaders(sid, forwardedIp);
 
   if (RAW_DEBUG_LOG) {
     console.log(
       `[login] vu=${__VU} phone=${phoneNumber} sid=${sid} deviceId=${deviceContext.deviceId} deviceToken=${deviceContext.deviceToken}`,
     );
   }
+  logForwardedIpSummary('forwarded-ip-summary', {
+    vu: __VU,
+    phoneNumber,
+    forwardedIp,
+  });
 
   const otpRequest = postJson(OTP_REQUEST_PATH, {
     phoneNumber: `+91${phoneNumber}`,
@@ -967,8 +979,11 @@ function isAssignedStatus(status) {
   ].includes(normalizedStatus);
 }
 
-function getTokenHeaders(token) {
-  return token ? { token } : {};
+function getTokenHeaders(token, forwardedIp) {
+  return {
+    ...(token ? { token } : {}),
+    ...getForwardedHeaders(forwardedIp),
+  };
 }
 
 function getCustomerProfile() {
@@ -980,6 +995,38 @@ function getCustomerProfile() {
     phoneNumber,
     firstName,
   };
+}
+
+function getForwardedHeaders(forwardedIp) {
+  if (!USE_FORWARDED_IP_HEADERS || !forwardedIp) {
+    return {};
+  }
+
+  return {
+    'X-Forwarded-For': forwardedIp,
+    'X-Real-IP': forwardedIp,
+  };
+}
+
+function getForwardedIp(vu) {
+  if (!USE_FORWARDED_IP_HEADERS) {
+    return '';
+  }
+
+  const lastOctet = FORWARDED_IP_START + Math.max(vu - 1, 0);
+  return `${FORWARDED_IP_BASE}.${lastOctet}`;
+}
+
+function logForwardedIpSummary(label, context = {}) {
+  if (!SUMMARY_LOG || !context.forwardedIp) {
+    return;
+  }
+
+  console.log(`[${label}] ${JSON.stringify({
+    vu: context.vu || null,
+    phoneNumber: context.phoneNumber || '',
+    forwardedIp: context.forwardedIp,
+  })}`);
 }
 
 function shouldRegisterCustomer(body) {
